@@ -1,0 +1,1204 @@
+---
+title: "Redukcja wymiaru i analiza danych"
+author: |+
+        | Katarzyna Bednarkiewicz, Ewelina Dąbrowa  
+date: "2026-04-30"
+output: 
+  pdf_document:
+    toc: true
+    dev: cairo_pdf
+    fig_caption: yes
+    fig_width: 6.5 
+    fig_height: 5 
+    number_sections: true
+header-includes:
+   - \usepackage[OT4]{polski}
+   - \usepackage[utf8]{inputenc}
+   - \usepackage{graphicx}
+   - \usepackage{float}
+fontsize: 12pt 
+lang: pl
+---
+
+    
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+knitr::opts_chunk$set(dev.args = list(png = list(type = "cairo"))) 
+    
+library(xtable) # do tworzenia tabel texowych w pdf
+library(arules) # zawiera funkcję discretize() do zadania 1
+library(e1071)  # zawiera funkcję compareMatchedClasses() do zadania 1
+```
+    
+    
+# Dyskretyzacja (przedziałowanie) cech ciągłych
+   
+\vspace{0.3cm}
+    
+## Dane: iris (R-pakiet datasets).
+
+Dane *iris* pochodzą z pakietu bazowego R - pakietu *datasets*. Zbiór tych danych zawiera wyniki pomiarów uzyskanych dla trzech gatunków irysów (tj. setosa, versicolor i virginica) i został udostępniony przez Ronalda Fishera w roku 1936.  
+Pomiary dotyczą długości oraz szerokości dwóch różnych części kwiatu, mianowicie działki kielicha (ang. sepal) oraz płatka (ang. petal).
+
+Wczytujemy i dołączamy dane *iris* z pakietu *datasets*.
+    
+```{r wczytanie danych, echo=FALSE}
+# wczytanie danych iris 
+library(datasets)
+dane <- iris
+
+#dołączenie danych
+attach(dane)
+```
+    
+W zbiorze znajduje się `r dim(dane)[1]` obserwacji. Cech mamy `r dim(dane)[2]` i są nimi:
+
+\begin{itemize}
+\item \textbf{Sepal.Length} (numeric; zakres: 4.3-7.9) - informacja na temat długości działki kielicha kwiata
+\item \textbf{Sepal.Width} (numeric; zakres: 2.0-4.4) - informacja na temat szerokości działki kielicha kwiata
+\item \textbf{Petal.Length} (numeric; zakres: 1.0-6.9) - informacja na temat długości płatków kwiata
+\item \textbf{Petal.Width} (numeric; zakres: 0.1-2.5) - informacja na temat szerokości płatków kwiata
+\item \textbf{Species} (factor; 3 poziomy: setosa/versicolor/virginica) - informacja o gatunku irysa
+\end{itemize}
+
+Zbiór danych jest zbalansowany. Potwierdza to Tabela liczności nr \ref{tab.licz} 
+
+```{r tabela_licznosci, echo=FALSE, results= 'asis'}
+# tworzenie tabeli liczności
+tabela_licznosci <- table(Species)
+rownames(tabela_licznosci) <- levels(Species)
+
+tabela_licznosci <- t(tabela_licznosci)  
+rownames(tabela_licznosci) <- "Liczność"
+
+xtabela <- xtable(tabela_licznosci,
+                  caption = "Tabela liczności",
+                  label = "tab.licz")
+print(xtabela,
+      type="latex",
+      table.placement = "H",
+      comment=FALSE)
+```
+
+```{r braki_danych, echo = FALSE}
+# zliczenie brakow danych
+braki <- sum(is.na(dane))
+```
+
+``` {r dupliakty, echo=FALSE}
+# szukanie duplikatow
+duplikaty <- duplicated(dane)
+gdzie <- which(duplikaty)
+zduplikowany <- dane[gdzie, ]
+
+# numer wiersza, dla ktorego znalezlismy duplikat
+czego_duplikat <- iris[Sepal.Length==zduplikowany$Sepal.Length & Sepal.Width==zduplikowany$Sepal.Width & Petal.Length==zduplikowany$Petal.Length & Petal.Width==zduplikowany$Petal.Width, ][1,]
+numer <- rownames(czego_duplikat)
+```
+
+Zbiór danych *iris* nie posiada żadnych braków danych. Występują natomiast dane zduplikowane, tj. wiersz nr `r gdzie` jest duplikatem wiersza nr `r numer`.  
+Dane *iris* nie posiadają żadnych nietypowych kodowań. W Tabeli nr \ref{tab.niet.1} przedstawione są poziomy i wartości unikalne dla zmiennej \textbf{Species}. Wynika z niej, że zmienna ta nie posiada żadnych niestandardowych kodowań wartości brakujących, ponieważ liczba jej poziomów pokrywa się z listą wartości przyjmowanych przez nią.
+
+``` {r niestandardowe_kodowania, echo=FALSE, results='asis'}
+# utworzenie zmiennych zawierających poziomy i wartości przyjmowane przez zmienna Species
+unikaty <- unique(Species)
+poziomy <- levels(Species)
+
+# stworzenie ramki danych
+niet_df_1 <- data.frame(
+  Zmienna = "Species",
+  Wartości = paste(unikaty, collapse=', '),
+  Poziomy = paste(poziomy, collapse=', '))
+
+# stworzenie tabeli
+tabelka_1 <- xtable(niet_df_1, 
+                    caption = "Porównanie wartości unikalnych z poziomami dla zmiennej Species",
+                    label = "tab.niet.1")
+print(tabelka_1, type="latex", table.placement = "H", comment = FALSE, include.rownames = FALSE)
+
+# wskazniki sumaryczne dla zmiennych ilosciowych
+wskaz_sum <- sapply(dane[,-5], function(x) {summary(x)})
+wskaz_sum <- t(wskaz_sum)
+
+# utworzenie tabeli
+tabelka_2 <- xtable(wskaz_sum,
+                    caption = "Wskaźniki sumaryczne dla zmiennych ilościowych",
+                    label = "tab.niet.2")
+print(tabelka_2, type="latex", table.placement = "H", comment=FALSE)
+```
+W Tabeli nr \ref{tab.niet.2} znajdują się wskaźniki sumaryczne dla zmiennych ilościowych. Wartości te nie wskazują na występowanie jakichkolwiek nietypowych kodowań.
+
+Dane są uporządkowane w sposób szczególny. Pierwszych 50 obserwacji stanowi jeden z gatunków irysów - setosa, kolejne 50 obserwacji to kolejny gatunek - versicolor oraz ostatnie 50 obserwacji to ostatni rodzaj irysów - virginica.
+
+
+\vspace{0.3cm}
+
+## Wybór cech
+
+Sprawdzamy wykresy rozrzutu (Rysunek \ref{fig.rozk_il_roz}) cech ilościowych względem 
+cechy jakościowej \textbf{Species}.
+
+```{r wykresy_rozrzutu_zm_ilosciowe, echo=FALSE, fig.cap="Wykresy rozrzutu dla poszczególnych zmiennych ilościowych względem zmiennej Species \\label{fig.rozk_il_roz}", fig.height=4}
+# ustalenie kolorow i wysokosci umieszczenia poszczegolnych punktow obrazujacych rozrzut zmiennych
+y <- runif(150)
+kolory <- c("plum", "olivedrab2", "turquoise2")
+
+# tworzenie wykresow
+par(mfrow=c(2,2))
+par(mar = c(4, 4, 3.5, 2))
+plot(Sepal.Length, y, col=kolory[Species], pch=15, main="Wykres rozrzutu dla zmiennej \nSepal.Length", xlab="Długość działki kielicha")
+plot(Sepal.Width, y, col=kolory[Species], pch=15, main="Wykres rozrzutu dla zmiennej \nSepal.Width", xlab="Szerokość działki kielicha")
+plot(Petal.Length, y, col=kolory[Species], pch=15, main="Wykres rozrzutu dla zmiennej \nPetal.Width", xlab="Długość płatków")
+plot(Petal.Width, y, col=kolory[Species], pch=15, main="Wykres rozrzutu dla zmiennej \nPetal.Width", xlab="Szerokość płatków")
+par(mar = c(5, 4, 4, 2) + 0.1)
+par(mfrow=c(1,1))
+```
+
+
+Zobaczmy również analogiczne wykresy pudełkowe (Rysunek \ref{fig.rozk_il_pudl}).
+
+```{r wykresy_pudelkowe_zm_ilosciowe, echo=FALSE, fig.cap="Wykresy pudełkowe dla poszczególnych zmiennych ilościowych względem zmiennej Species \\label{fig.rozk_il_pudl}", fig.height=5.25}
+kolory2 <- colorRampPalette(c("navyblue", "lightslateblue"))
+
+# tworzenie wykresow
+par(mfrow=c(2,2))
+par(mar = c(4, 4, 3.5, 2))
+plot(Sepal.Length ~ Species, col=kolory2(3), xlab="Gatunek irysa", main="Wykres pudełkowy dla zmiennej \nSepal.Length", ylab="Długość działki kielicha")
+plot(Sepal.Width ~ Species, col=kolory2(3), xlab="Gatunek irysa", main="Wykres pudełkowy dla zmiennej \nSepal.Width", ylab="Szerokość działki kielicha")
+plot(Petal.Length ~ Species, col=kolory2(3), xlab="Gatunek irysa", main="Wykres pudełkowy dla zmiennej \nPetal.Length", ylab="Długość płatków")
+plot(Petal.Width ~ Species, col=kolory2(3), xlab="Gatunek irysa", main="Wykres pudełkowy dla zmiennej \nPetal.Width", ylab="Szerokość płatków")
+par(mar = c(5, 4, 4, 2) + 0.1)
+par(mfrow=c(1,1))
+```
+Wniosek: Przyglądając się Rysunkom \ref{fig.rozk_il_roz} oraz \ref{fig.rozk_il_pudl} możemy zauważyć, że cechą o najlepszej zdolności dyskryminacyjnej jest zmienna \textbf{Petal.Width}, ponieważ rozkłady dla poszczególnych gatunków irysów dla tej cechy mocno się różnią. Zaś zmienną o najgorszej zdolności dyskryminacyjnej jest zmienna \textbf{Sepal.Width} - rozkłady dla różnych gatunków przenikają się i równie dobrze niektóre z obserwacji mogłby być zakwalifikowane do każdego z tych trzech gatunków.
+
+\vspace{0.3cm}
+
+## Porównanie nienadzorowanych metod dyskretyzacji
+
+
+Przyjmujemy liczbę przedziałów $K=3$. Do dyskretyzacji nienadzorowanej wykorzystamy funkcję *discretize()* 
+z pakietu \texttt{arules}.
+
+### Metoda (domyślna) oparta na równych częstościach (ang. equal frequency)
+
+
+``` {r dyskretyzacja_o_rown_czest_1, echo=FALSE, fig.cap="Histogram oraz wykres rozrzutu dla zmiennej Petal.Width z przedziałami wyznaczonymi metodą opartą na równych częstościach \\label{fig.czest.1}", fig.width=7, fig.height=6.25}
+# dyskretyzacja zmiennej Petal.Width metodą "frequency"
+kolory3 <- c("darkmagenta", "darkolivegreen", "royalblue3")
+czest_PW <- discretize(Petal.Width, breaks=3)
+
+# tworzenie wykresow
+par(mfrow=c(2,1))
+par(mar = c(4, 4, 2, 2))
+hist(Petal.Width, breaks=10, col="thistle", main="Metoda: equal frequency discretization", xlab="")
+przedz_czest_PW <- attributes(czest_PW)$"discretized:breaks"
+abline(v=przedz_czest_PW, col="red", lwd=3)
+
+plot(Petal.Width, y, col=kolory3[Species], xlab="Szerokość płatków")
+abline(v = przedz_czest_PW, col = "red", lwd=3)
+legend(x = "topright", legend=levels(Species), col=kolory3, pch=21, bg = "azure2")
+par(mar = c(5, 4, 4, 2) + 0.1)
+par(mfrow=c(1,1))
+```
+
+
+``` {r dyskretyzacja_o_rown_czest_rozkl-tab_kont_1, echo=FALSE, results='asis'}
+# tworzenie tabeli 
+tab_czest_kont_PW <- table(czest_PW, Species)
+xtab_czest_kont_PW <- xtable(tab_czest_kont_PW,
+                          caption = "Tabela kontyngencji dla zmiennej Petal.Width - equal frequency",
+                          label = "tab.czest.kont.1")
+
+print(xtab_czest_kont_PW, type="latex", table.placement = "H", comment=FALSE, sanitize.text.function = function(x) {
+        gsub("^\\[", "{}[", x)
+      })
+```
+
+
+``` {r wspolczynnik_zgodnosci_1.1, echo=FALSE}
+# wspolczynnik zgodnosci dla zmiennej Petal.Width -  metoda "frequency"
+wsp_zgod_1.1 <- compareMatchedClasses(Species, czest_PW, method="rowmax")$diag
+```
+
+Rysunek nr \ref{fig.czest.1} przedstawia histogram oraz wykres rozrzutu z podziałem na gatunki irysów dla zmiennej \textbf{Petal.Width}. Wynika z nich, że rozkłady poszczególnych gatunków są zróżnicowane, dzięki czemu łatwo jest pogrupować obserwacje i przypisać je do odpowiednich dla nich gatunków. Potwierdza to współczynnik zgodności, który jest na poziomie `r round(wsp_zgod_1.1, 2)` (Tabela nr \ref{tab.zgod.1}). Tabela kontyngencji nr \ref{tab.czest.kont.1} pokazuje niemal idealną separację gatunków - przedział [0.1, 0.867) obejmuje wyłącznie gatunek setosa (100% trafności), natomiast pozostałe przedziały z niewielkim błędem (łącznie tylko 8 obserwacji poza dominującą klasą) oddzielają versicolor od virginica.
+
+
+``` {r dyskretyzacja_o_rown_czest_2, echo=FALSE, fig.cap="Histogram oraz wykres rozrzutu dla zmiennej Sepal.Width z przedziałami wyznaczonymi metodą opartą na równych częstościach \\label{fig.czest.2}", fig.width=7, fig.height=5.25}
+# dyskretyzacja zmiennej Sepal.Width metodą "frequency"
+kolory4 <- c("lightseagreen", "hotpink", "slateblue")
+czest_SW <- discretize(Sepal.Width, breaks=3)
+
+# tworzenie wykresow
+par(mfrow=c(2,1))
+par(mar = c(4, 4, 2, 2))
+hist(Sepal.Width, breaks=10, col="lemonchiffon", main="Metoda: equal frequency discretizaion", xlab="")
+przedz_czest_SW <- attributes(czest_SW)$"discretized:breaks"
+abline(v=przedz_czest_SW, col="red", lwd=3)
+
+plot(Sepal.Width, y, col=kolory4[Species], xlab="Szerokość działki kielicha")
+abline(v = przedz_czest_SW, col = "red", lwd=3)
+legend(x = "topright", legend=levels(Species), col=kolory4, pch=21, bg = "azure2")
+par(mar = c(5, 4, 4, 2) + 0.1)
+par(mfrow=c(1,1))
+```
+
+
+``` {r dyskretyzacja_o_rown_czest_rozkl-tab_kont_2, echo=FALSE, results='asis'}
+# tworzenie tabeli
+tab_czest_kont_SW <- table(czest_SW, Species)
+xtab_czest_kont_SW <- xtable(tab_czest_kont_SW,
+                          caption = "Tabela kontyngencji dla zmiennej Sepal.Width - equal frequency",
+                          label = "tab.czest.kont.2")
+
+print(xtab_czest_kont_SW, type="latex", table.placement = "H", comment=FALSE, sanitize.text.function = function(x) {
+        gsub("^\\[", "{}[", x)
+      })
+```
+
+
+``` {r wspolczynnik_zgodnosci_1.2, echo=FALSE}
+# wspolczynnik zgodnosci dla Sepal.Width - metoda "frequency"
+wsp_zgod_1.2 <- compareMatchedClasses(Species, czest_SW, method="rowmax")$diag
+```
+
+Rysunek nr \ref{fig.czest.2} przedstawia histogram oraz wykres rozrzutu z podziałem na gatunki irysów dla zmiennej \textbf{Sepal.Width}. Z rysunków wynika, że rozkłady poszczególnych gatunków nie są zróżnicowane - większość obserwacji charakteryzuje się szerokością działki kielicha oscylującą w przedziale 2.8-3.0, przez co ciężko jest przyporządkować odpowiedni gatunek danej obserwacji. Potwierdza to współczynnik zgodności, który jest na poziomie `r round(wsp_zgod_1.2, 2)` (Tabela nr \ref{tab.zgod.2}) - jest on stosunkowo niski, co obniża wiarygodność zmiennej \textbf{Sepal.Width} jako klasyfikatora. Tabela kontyngencji nr \ref{tab.czest.kont.2} pokazuje niezbyt precyzyjną separację gatunków - wiele z obserwacji dla danego gatunku znajduje się poza jego dominującą klasą. W przeciwieństwie do poprzedniej zmiennej, żaden przedział nie definiuje konkretnego gatunku irysa. Przykładowo, w przedziale [2.9, 3.2) znajdują się reprezentanci wszystkich trzech gatunków, co czyni go praktycznie bezużytecznym w procesie identyfikacji.
+
+
+### Dyskretyzacja oparta na przedziałach o jednakowej szerokości (ang. equal interval width)
+
+``` {r dyskretyzacja_o_jedn_szer_1, echo=FALSE, fig.cap="Histogram oraz wykres rozrzutu dla zmiennej Petal.Width z przedziałami wyznaczonymi metodą opartą na przedziałach o równej szerokości \\label{fig.szer.1}", fig.width=7, fig.height=5.25}
+# dyskretyzacja zmiennej Petal.Width metodą "interval"
+szer_PW <- discretize(Petal.Width, method="interval", breaks=3)
+
+# tworzenie wykresow
+par(mfrow=c(2,1))
+par(mar = c(4, 4, 2, 2))
+hist(Petal.Width, breaks=10, col="thistle", main="Metoda: equal interval length", xlab="")
+przedz_szer_PW <- attributes(szer_PW)$"discretized:breaks"
+abline(v=przedz_szer_PW, col="red", lwd=3)
+
+plot(Petal.Width, y, col=kolory3[Species], xlab="Szerokość płatków")
+abline(v = przedz_szer_PW, col = "red", lwd=3)
+legend(x = "topright", legend=levels(Species), col=kolory3, pch=21, bg = "azure2")
+par(mar = c(5, 4, 4, 2) + 0.1)
+par(mfrow=c(1,1))
+```
+
+
+``` {r dyskretyzacja_o_jedn_szer_rozkl-tab_kont_1, echo=FALSE, results='asis'}
+# tworzenie tabeli
+tab_szer_kont_1 <- table(szer_PW, Species)
+xtab_szer_kont_1 <- xtable(tab_szer_kont_1,
+                          caption = "Tabela kontyngencji dla zmiennej Petal.Width - equal interval width",
+                          label = "tab.szer.kont.1")
+
+print(xtab_szer_kont_1, type="latex", table.placement = "H", comment=FALSE, sanitize.text.function = function(x) {
+        gsub("^\\[", "{}[", x)
+      })
+```
+
+
+``` {r wspolczynnik_zgodnosci_2.1, echo=FALSE}
+# wspolczynnik zgodnosci dla Petal.Width - metoda "interval"
+wsp_zgod_2.1 <- compareMatchedClasses(Species, szer_PW, method="rowmax")$diag
+```
+
+W przypadku metody opartej na przedziałach o jednakowej szerokości dla zmiennej \textbf{Petal.Width} (Rysunek nr \ref{fig.szer.1}) histogram oraz wykres rozrzutu wskazują na to, że rozkłady poszczególnych gatunków są mocno zróżnicowane, dzięki czemu jesteśmy w stanie łatwo pogrupować obserwacje i przypisać je do odpowiednich dla nich gatunków. Potwierdza to także współczynnik zgodności, wynoszący `r round(wsp_zgod_2.1, 2)` (Tabela nr \ref{tab.zgod.1}). Tabela kontyngencji nr \ref{tab.szer.kont.1} utwierdza nas w tym, że gatunki można bardzo prosto pogrupować - przedział [0.1, 0.9) obejmuje wyłącznie gatunek setosa, zaś pozostałe przedziały z niewielkim błędem (6 obserwacji poza dominującą klasą) oddzielają gatunek versicolor od virginica.
+
+
+``` {r dyskretyzacja_o_jedn_szer_2, echo=FALSE, fig.cap="Histogram oraz wykres rozrzutu dla zmiennej Sepal.Width z przedziałami wyznaczonymi metodą opartą na przedziałach o równej szerokości \\label{fig.szer.2}", fig.width=7, fig.height=5.25}
+# dyskretyzacja zmiennej Sepal.Width metodą "interval"
+szer_SW <- discretize(Sepal.Width, method="interval", breaks=3)
+
+# tworzenie wykresow
+par(mfrow=c(2,1))
+par(mar = c(4, 4, 2, 2))
+hist(Sepal.Width, breaks=10, col="lemonchiffon", main="Metoda: equal interval length", xlab="")
+przedz_szer_SW <- attributes(szer_SW)$"discretized:breaks"
+abline(v=przedz_szer_SW, col="red", lwd=3)
+
+plot(Sepal.Width, y, col=kolory4[Species], xlab="Szerokość działki kielicha")
+abline(v = przedz_szer_SW, col = "red", lwd=3)
+legend(x = "topright", legend=levels(Species), col=kolory4, pch=21, bg = "azure2")
+par(mar = c(5, 4, 4, 2) + 0.1)
+par(mfrow=c(1,1))
+```
+
+
+``` {r dyskretyzacja_o_jedn_szer_rozkl-tab_kont_2, echo=FALSE, results='asis'}
+# tworzenie tabeli
+tab_szer_kont_2 <- table(szer_SW, Species)
+xtab_szer_kont_2 <- xtable(tab_szer_kont_2,
+                          caption = "Tabela kontyngencji dla zmiennej Sepal.Width - equal interval width",
+                          label = "tab.szer.kont.2")
+
+print(xtab_szer_kont_2, type="latex", table.placement = "H", comment=FALSE, sanitize.text.function = function(x) {
+        gsub("^\\[", "{}[", x)
+      })
+```
+
+
+``` {r wspolczynnik_zgodnosci_2.2, echo=FALSE}
+# wspolczynnik zgodnosci dla zmiennej Sepal.Width - metoda "interval"
+wsp_zgod_2.2 <- compareMatchedClasses(Species, szer_SW, method="rowmax")$diag
+```
+Na Rysunku nr \ref{fig.szer.2} znajdują się histogram oraz wykres rozrzutu z podziałem na gatunki irysów dla zmiennej \textbf{Sepal.Width}. Zgodnie z wcześniejszymi obserwacjami, również w tym przypadku ciężko jest przyporządkować odpowiedni gatunek danej obserwacji. Współczynnik zgodności jest na poziomie `r round(wsp_zgod_2.2, 2)` (Tabela nr \ref{tab.zgod.2}), jest więc on jeszcze niższy niż w przypadku pierwszej metody dyskryminacji. Tabela kontyngencji nr \ref{tab.szer.kont.2} również charakteryzuje się niedokładną separacją gatunków. Tutaj jedynym jakkolwiek definiującym przedziałem jest przedział [3.6, 4.4], dla którego prawie wszystkie obserwacje są z gatunku setosa.
+
+
+### Dyskretyzacja oparta na algorytmie grupowania (ang. k-means discretization)
+
+
+``` {r dyskretyzacja_alg_gr_1, echo=FALSE, fig.cap="Histogram oraz wykres rozrzutu dla zmiennej Petal.Width z przedziałami wyznaczonymi metodą opartą na algorytmie grupowania \\label{fig.gr.1}", fig.width=7, fig.height=4.75}
+# dyskretyzacja zmiennej Petal.Width metodą "cluster"
+gr_PW <- discretize(Petal.Width, method="cluster", breaks=3)
+
+# tworzenie wykresow
+par(mfrow=c(2,1))
+par(mar = c(4, 4, 2, 2))
+hist(Petal.Width, breaks=10, col="thistle", main="Metoda: k-means discretization", xlab="")
+przedz_gr_PW <- attributes(gr_PW)$"discretized:breaks"
+abline(v=przedz_gr_PW, col="red", lwd=3)
+
+plot(Petal.Width, y, col=kolory3[Species], xlab="Szerokość płatków")
+abline(v = przedz_gr_PW, col = "red", lwd=3)
+legend(x = "topright", legend=levels(Species), col=kolory3, pch=21, bg = "azure2")
+par(mar = c(5, 4, 4, 2) + 0.1)
+par(mfrow=c(1,1))
+```
+
+
+``` {r dyskretyzacja_alg_gr-tab_kont_1, echo=FALSE, results='asis'}
+# utworzenie tabeli przy pomocy funkcji table oraz wyznaczenie przedziałów i potrzebnych wartości do automatyzacji wnioskow
+tab_gr_kont_1 <- table(gr_PW, Species)
+przedzialy_1 <- rownames(tab_gr_kont_1)
+zle_dopasowane <- sum(tab_gr_kont_1[2,3], tab_gr_kont_1[3,2])
+
+# tworzenie tabeli
+xtab_gr_kont_1 <- xtable(tab_gr_kont_1,
+                          caption = "Tabela kontyngencji dla zmiennej Petal.Width - k-means discretization",
+                          label = "tab.gr.kont.1")
+
+print(xtab_gr_kont_1, type="latex", table.placement = "H", comment=FALSE, sanitize.text.function = function(x) {
+        gsub("^\\[", "{}[", x)
+      })
+```
+
+
+``` {r wspolczynnik_zgodnosci_3.1, echo=FALSE}
+# wspolczynnik zgodnosci dla zmiennej Petal.Width - metoda "cluster"
+wsp_zgod_3.1 <- compareMatchedClasses(Species, gr_PW, method="rowmax")$diag
+```
+
+Na Rysunku nr \ref{fig.gr.1} znajdują się histogram oraz wykres rozrzutu z podziałem na gatunki irysów dla zmiennej \textbf{Petal.Width}. Zgodnie z wcześniejszymi obserwacjami rozkłady poszczególnych gatunków są mocno zróżnicowane, dzięki czemu jesteśmy w stanie łatwo pogrupować obserwacje i przypisać je do odpowiednich dla nich gatunków. Dla dyskretyzaji opartej na algorytmie grupowania również potwierdza to współczynnik zgodności, wynoszący `r round(wsp_zgod_3.1, 2)` (Tabela nr \ref{tab.zgod.1}). Tabela kontyngencji nr \ref{tab.gr.kont.1} pokazuje, że również dla tej metody przedział `r przedzialy_1[1]` obejmuje wyłącznie gatunek setosa, zaś pozostałe przedziały z niewielkim błędem (`r zle_dopasowane` obserwacji poza dominującą klasą) oddzielają gatunek versicolor od virginica.
+
+
+``` {r dyskretyzacja_alg_gr_2, echo=FALSE, fig.cap="Histogram oraz wykres rozrzutu dla zmiennej Sepal.Width z przedziałami wyznaczonymi metodą opartą na algorytmie grupowania \\label{fig.gr.2}", fig.width=7, fig.height=5.25}
+# dyskretyzacja zmiennej Sepal.Width metodą "cluster"
+gr_SW <- discretize(Sepal.Width, method="cluster", breaks=3)
+
+# tworzenie wykresow
+par(mfrow=c(2,1))
+par(mar = c(4, 4, 2, 2))
+hist(Sepal.Width, breaks=10, col="lemonchiffon", main="Metoda: k-means discretization", xlab="")
+przedz_gr_SW <- attributes(gr_SW)$"discretized:breaks"
+abline(v=przedz_gr_SW, col="red", lwd=3)
+
+plot(Sepal.Width, y, col=kolory4[Species], xlab="Szerokość działki kielicha")
+abline(v = przedz_gr_SW, col = "red", lwd=3)
+legend(x = "topright", legend=levels(Species), col=kolory4, pch=21, bg = "azure2")
+par(mar = c(5, 4, 4, 2) + 0.1)
+par(mfrow=c(1,1))
+```
+
+
+``` {r dyskretyzacja_alg_gr-tab_kont_2, echo=FALSE, results='asis'}
+# utworzenie tabeli przy pomocy funkcji table oraz wyznaczenie przedziałów i potrzebnych wartości do automatyzacji wnioskow
+tab_gr_kont_2 <- table(gr_SW, Species)
+przedzialy_2 <- rownames(tab_gr_kont_2)
+ile_obserwacji_3_wiersz <- sum(tab_gr_kont_2[3, ])
+spoza_setosa_3_wiersz <- sum(tab_gr_kont_2[3, -1])
+
+# tworzenie tabeli
+xtab_gr_kont_2 <- xtable(tab_gr_kont_2,
+                          caption = "Tabela kontyngencji dla zmiennej Sepal.Width - k-means discretization",
+                          label = "tab.gr.kont.2")
+
+print(xtab_gr_kont_2, type="latex", table.placement = "H", comment=FALSE, sanitize.text.function = function(x) {
+        gsub("^\\[", "{}[", x)
+      })
+```
+
+
+``` {r wspolczynnik_zgodnosci_3.2, echo=FALSE}
+# wspolczynnik zgodnosci dla zmiennej Sepal.Width - metoda "cluster"
+wsp_zgod_3.2 <- compareMatchedClasses(Species, gr_SW, method="rowmax")$diag
+```
+
+Analizując histogram oraz wykres rozrzutu dla zmiennej \textbf{Sepal.Width} (Rysunek nr \ref{fig.gr.2}) można dostrzec, że dla metody opartej na algorytmie grupowania także trudno jest przyporządkować odpowiedni gatunek danej obserwacji. Współczynnik zgodności jest na poziomie `r round(wsp_zgod_3.2, 2)` (Tabela nr \ref{tab.zgod.2}), ma więc on wartość nieco niższą niż współczynnik wyznaczony za pomocą pierwszej metody. Tabela kontyngencji nr \ref{tab.gr.kont.2} potwierdza, że gatunków nie da się rozróżnić. Jedynym w pewien sposób definiującym przedziałem jest przedział `r przedzialy_2[3]`, dla którego jedynie `r spoza_setosa_3_wiersz` z `r ile_obserwacji_3_wiersz` obserwacji jest z innego gatunku niż setosa. Pozostałe przedziały niestety bardzo słabo identyfikują gatunki.
+
+
+### Dyskretyzacja z przedziałami zadanymi przez użytkownika
+
+
+``` {r dyskretyzacja_przedz_uz_1, echo=FALSE, fig.cap="Histogram oraz wykres rozrzutu dla zmiennej Petal.Width z przedziałami zadanymi przez użytkownika \\label{fig.uz.1}", fig.width=7, fig.height=4.75}
+# dyskretyzacja zmiennej Petal.Width metodą "fixed" 
+uz_PW <- discretize(Petal.Width, method="fixed", breaks=c(-Inf, 0.75, 1.65, Inf), labels = c("small", "medium", "large"))
+
+# tworzenie wykresow
+par(mfrow=c(2,1))
+par(mar = c(4, 4, 2, 2))
+hist(Petal.Width, breaks=10, col="thistle", main="Metoda: fixed (user provided breaks)", xlab="")
+przedz_uz_PW <- c(-Inf, 0.75, 1.65, Inf)
+abline(v=przedz_uz_PW, col="red", lwd=3)
+
+plot(Petal.Width, y, col=kolory3[Species], xlab="Szerokość płatków")
+abline(v = przedz_uz_PW, col = "red", lwd=3)
+legend(x = "topright", legend=levels(Species), col=kolory3, pch=21, bg = "azure2")
+par(mar = c(5, 4, 4, 2) + 0.1)
+par(mfrow=c(1,1))
+```
+
+
+``` {r dyskretyzacja_przedz_uz-tab_kont_1, echo=FALSE, results='asis'}
+# tworzenie tabeli
+tab_uz_kont_1 <- table(uz_PW, Species)
+xtab_uz_kont_1 <- xtable(tab_uz_kont_1,
+                          caption = "Tabela kontyngencji dla zmiennej Petal.Width - przedziały zadane przez użytkownika",
+                          label = "tab.uz.kont.1")
+
+print(xtab_uz_kont_1, type="latex", table.placement = "H", comment=FALSE, sanitize.text.function = function(x) {
+        gsub("^\\[", "{}[", x)
+      })
+```
+
+
+``` {r wspolczynnik_zgodnosci_4.1, echo=FALSE}
+# wspolczynnik zgodnosci dla Petal.Width - metoda fixed
+wsp_zgod_4.1 <- compareMatchedClasses(Species, uz_PW, method="rowmax")$diag
+```
+
+Na Rysunku nr \ref{fig.uz.1} znajdują się histogram oraz wykres rozrzutu z podziałem na gatunki irysów dla zmiennej \textbf{Petal.Width}. Tak jak w poprzednich przypadkach również tutaj rozkłady dla poszczególnych gatunków są mocno zróżnicowane, więc jesteśmy w stanie łatwo pogrupować obserwacje. Dla tej metody dyskretyzaji również tę obserwację potwierdza współczynnik zgodności, wynoszący `r round(wsp_zgod_4.1, 2)` (Tabela nr \ref{tab.zgod.1}). Tabela kontyngencji nr \ref{tab.uz.kont.1} także cieszy się bardzo dokładną separację gatunków - przedział [0.75, 1.65) o nazwie "small" obejmuje wyłącznie gatunek setosa, zaś pozostałe przedziały również, tak jak w poprzednich metodach, z niewielkim błędem (6 obserwacji poza dominującą klasą) oddzielają gatunek versicolor od virginica.
+
+
+``` {r dyskretyzacja_przedz_uz_2, echo=FALSE, fig.cap="Histogram oraz wykres rozrzutu dla zmiennej Sepal.Width z przedziałami zadanymi przez użytkownika \\label{fig.uz.2}", fig.width=7, fig.height=4.75}
+attach(dane)
+# dyskretyzacja zmiennej Sepal.Width metodą "fixed"
+uz_SW <- discretize(Sepal.Width, method="fixed", breaks=c(-Inf, 2.8, 3.4, Inf), labels = c("small", "medium", "large"))
+
+# tworzenie wykresow
+par(mfrow=c(2,1))
+par(mar = c(4, 4, 2, 2))
+hist(Sepal.Width, breaks=10, col="lemonchiffon", main="Metoda: fixed (user provided breaks)", xlab="")
+przedz_uz_SW <- c(-Inf, 2.8, 3.4, Inf)
+abline(v=przedz_uz_SW, col="red", lwd=3)
+
+plot(Sepal.Width, y, col=kolory4[Species], xlab="Szerokość działki kielicha")
+abline(v = przedz_uz_SW, col = "red", lwd=3)
+legend(x = "topright", legend=levels(Species), col=kolory4, pch=21, bg = "azure2")
+par(mar = c(5, 4, 4, 2) + 0.1)
+par(mfrow=c(1,1))
+```
+
+
+``` {r dyskretyzacja_przedz_uz-tab_kont_2, echo=FALSE, results='asis'}
+# tworzenie tabeli
+tab_uz_kont_2 <- table(uz_SW, Species)
+xtab_uz_kont_2 <- xtable(tab_uz_kont_2,
+                          caption = "Tabela kontyngencji dla zmiennej Sepal.Width - przedziały zadane przez użytkownika",
+                          label = "tab.uz.kont.2")
+
+print(xtab_uz_kont_2, type="latex", table.placement = "H", comment=FALSE, sanitize.text.function = function(x) {
+        gsub("^\\[", "{}[", x)
+      })
+```
+
+
+``` {r wspolczynnik_zgodnosci_4.2, echo=FALSE}
+# wspolczynnik zgodnosci dla zmiennej Sepal.Width - metoda "fixed"
+wsp_zgod_4.2 <- compareMatchedClasses(Species, uz_SW, method="rowmax")$diag
+```
+
+Rysunek nr \ref{fig.uz.2} zawiera histogram oraz wykres rozrzutu z podziałem na gatunki irysów dla zmiennej \textbf{Sepal.Width}. Współczynnik zgodności jest na poziomie `r round(wsp_zgod_4.2, 2)` (Tabela nr \ref{tab.zgod.2}), jest więc on niższy niż wspołczynnik wyznaczony pierwszą metodą. Tabela kontyngencji nr \ref{tab.uz.kont.2} także cechuje się niezbyt akuratną separacją gatunków. Jedynym "dobrze" definiującym przedziałem jest przedział [3.4, 4.4], nazwany "large", dla którego tylko 6  z 37 obserwacji jest z innego gatunku niż setosa. Pozostałe przedziały bardzo słabo identyfikują gatunki.
+
+
+### Podsumowanie
+
+
+W Tabeli nr \ref{tab.zgod.1} przedstawione zostały współczynniki zgodności dla zmiennej \textbf{Petal.Width}, która charakteryzuje się najlepszą zdolnościa dyskryminacyjną.
+
+``` {r wsp_zgodn_PW, echo=FALSE, results='asis'}
+# tworzenie tabeli wspolczynnikow zgodnosci dla zmiennej Petal.Width
+wsp_zgod_PW <- data.frame(
+  "Metoda 1" = wsp_zgod_1.1,
+  "Metoda 2" = wsp_zgod_2.1,
+  "Metoda 3" = wsp_zgod_3.1,
+  "Metoda 4" = wsp_zgod_4.1)
+
+rownames(wsp_zgod_PW) <- "Współczynnik zgodności"
+
+tabela_wsp_PW <- xtable(wsp_zgod_PW, 
+                        caption = "Współczynniki zgodności dla zmiennej Petal.Width dla różnych metod dyskretyzacji",
+                        label = "tab.zgod.1")
+print(tabela_wsp_PW, type="latex", table.placement = "H", comment=FALSE)
+```
+
+
+W Tabeli nr \ref{tab.zgod.2} przedstawione zostały współczynniki zgodności dla zmiennej \textbf{Sepal.Width}, która charakteryzuje się najgorszą zdolnościa dyskryminacyjną.
+
+``` {r wsp_zgodn_SW, echo=FALSE, results='asis'}
+# tworzenie tabeli wspolczynnikow zgodnosci dla zmiennej Sepal.Width
+wsp_zgod_SW <- data.frame(
+  "Metoda 1" = wsp_zgod_1.2,
+  "Metoda 2" = wsp_zgod_2.2,
+  "Metoda 3" = wsp_zgod_3.2,
+  "Metoda 4" = wsp_zgod_4.2)
+
+rownames(wsp_zgod_SW) <- "Współczynnik zgodności"
+
+tabela_wsp_SW <- xtable(wsp_zgod_SW, 
+                        caption = "Współczynniki zgodności dla zmiennej Sepal.Width dla różnych metod dyskretyzacji",
+                        label = "tab.zgod.2")
+print(tabela_wsp_SW, type="latex", table.placement = "H", comment=FALSE)
+```
+
+Uwzględniając wcześniejsze rysunki, tabele kontyngencji oraz tabele zgodności, możemy wnioskować, że najlepszą metodą dyskretyzacji jest metoda oparta na równych częstościach. Mimo, że dopasowała ona nieco gorzej przedział dla zmiennej \textbf{Petal.Width} (`r round(wsp_zgod_1.1, 2)` - różnica około 1 punkta procentowego względem współczynników zgodności wyznaczonych innymi metodami), to znacznie lepiej dobrała ona przedziały dla zmiennej \textbf{Sepal.Width} (`r round(wsp_zgod_1.2, 2)`). Potwierdzają to również Rysunki nr \ref{fig.czest.1} oraz \ref{fig.czest.2}. Dla zmiennej \textbf{Petal.Width} tylko 8 obserwacji zostało źle dopasowanych do przedziałów (Tabela kontyngencji nr \ref{tab.czest.kont.1}) - dla pozostałych tabel ilość źle dobranych obserwacji wynosi 6. Dla zmiennej \textbf{Sepal.Width} źle dobranych obserwacji jest znacznie więcej, ponieważ specyfika rozkładu tej cechy (rozkład zbliżony do rozkładu normalnego) sprawia, że żadna z metod nie jest w stanie wyznaczyć satysfakcjonujących granic przedziałów. Aczkolwiek tych obserwacji jest najmniej względem pozostałych metod, o czym świadczy współczynnik zgodności.  
+Wyniki otrzymane dla najlepszej cechy istotnie różnią się od wyników otrzymanych dla najgorszej cechy - przede wszystkim współczynnik zgodności dla \textbf{Sepal.Width} jest znacznie niższy w porównaniu ze współczynnikiem zmiennej \textbf{Petal.Width}. Tak samo wykresy rozrzutu z wyznaczonymi przedziałami dla najlepszej cechy są bardzo czytelne. Widać, że przedziały dobrze rozdzielają obserwacje do poszczególnych grup, w przeciwieństwie do wykresów rozrzutu dla najgorszej cechy. Te przesłanki potwierdzają także tabele kontyngencji.  
+Podsumowując, dla cech o wyraźnej separacji (\textbf{Petal.Width}) każda z metod dyskretyzacji daje zbliżone, wysokie wyniki. W przypadku cech o rozkładzie zbliżonym do normalnego, najkorzystniejszą metodą przedziałowania jest metoda oparta na równych częstościach.
+
+\vspace{1cm}
+
+# Analiza składowych głównych (Principal Component Analysis (PCA))
+
+\vspace{0.3cm}
+
+## Dane
+
+
+Rozpoczynamy od wczytania danych z pliku *uaScoresDataFrame.csv*. Możemy podejrzeć jak wyglądają nasze dane przy pomocy funkcji \texttt{head()}.
+
+```{r wczytanie_danych, echo=FALSE}
+# wczytanie danych z pliku csv
+dane.2 <- read.csv("uaScoresDataFrame.csv")
+
+# podgląd danych
+podglad <- head(dane.2)
+```
+
+Zbiór danych zawiera wskaźniki opisujące jakość życia w wybranych miastach. Analizowane charakterystyki obejmują m.in. warunki mieszkaniowe, koszty utrzymania, bezpieczeństwo, opiekę zdrowotną oraz poziom edukacji. Wszystkie cechy ilościowe przyjmują wartości w zakresie 0-10, przy czym wyższa wartość oznacza lepszy wynik w danej kategorii. Dodatkowo zbiór zawiera informacje o lokalizacji miast, zapisane w zmiennych \textbf{UA\_Name} (nazwa miasta), \textbf{UA\_Country} (państwo) oraz \textbf{UA\_Continent} (kontynent).
+Dane obejmują `r nrow(dane.2)` obserwacji opisanych za pomocą `r ncol(dane.2)` cech:
+
+\begin{itemize}
+\item \textbf{X} (integer; zakres: 0-265) - identyfikator miast
+\item \textbf{UA\_Name} (character; 264 unikalnych wartości) - miasta
+\item \textbf{UA\_Country} (character; 135 unikalnych wartości) - państwa, w których leżą dane miasta
+\item \textbf{UA\_Continent} (character; 6 unikalnych wartości) - kontynenty, na których leżą dane państwa
+\item \textbf{Housing} (numeric; zakres: 0-10) - ocena w skali 0-10 dostępności i jakości rynku mieszkaniowego oraz lokalnej polityki mieszkaniowej
+\item \textbf{Cost.of.Living} (numeric; zakres: 0-10) - ocena w skali 0-10 kosztów utrzymania
+\item \textbf{Startups} (numeric; zakres: 0-10) - ocena w skali 0-10 dynamiczności rynku pracy i łatwości zakładania nowych przedsiębiorstw
+\item \textbf{Venture.Capital} (numeric; zakres: 0-10) - ocena w skali 0-10 dostępu do kapitału wysokiego ryzyka dla nowych przedsiębiorstw
+\item \textbf{Travel.Connectivity} (numeric; zakres: 0-10) - ocena w skali 0-10 skomunikowania miasta z resztą świata
+\item \textbf{Commute} (numeric; zakres: 0-10) - ocena w skali 0-10 jakości dojazdu w określone miejsca (głównie do pracy/szkoły)
+\item \textbf{Business.Freedom} (numeric; zakres: 0-10) - ocena w skali 0-10 zakresu swobody prowadzenia działalności gospodarczej
+\item \textbf{Safety} (numeric; zakres: 0-10) - ocena w skali 0-10 bezpieczeństwa w danym mieście
+\item \textbf{Healthcare} (numeric; zakres: 0-10) - ocena w skali 0-10 opieki zdrowotnej
+\item \textbf{Education} (numeric; zakres: 0-10) - ocena w skali 0-10 poziomu edukacji
+\item \textbf{Enviromental.Quality} (numeric; zakres: 0-10) - ocena w skali 0-10 jakości środowiska
+\item \textbf{Economy} (numeric; zakres: 0-10) - ocena w skali 0-10 ekonomii danego miasta
+\item \textbf{Taxation} (numeric; zakres: 0-10) - ocena w skali 0-10 systemu podatkowego
+\item \textbf{Internet.Access} (numeric; zakres: 0-10) - ocena w skali 0-10 dostępności internetu
+\item \textbf{Leisure...Culture} (numeric; zakres: 0-10) - ocena w skali 0-10 dostępu do oferty kulturalnej, rozrywkowej oraz możliwości do spędzania czasu wolnego
+\item \textbf{Tolerance} (numeric; zakres: 0-10) - ocena w skali 0-10 tolerancji
+\item \textbf{Outdoors} (numeric; zakres: 0-10) - ocena w skali 0-10 dostępności i jakości przestrzeni publicznych, parków czy też terenów rekreacyjnych
+\end{itemize}
+
+
+Cecha \textbf{X} jest zmienną typu integer o zakresie z przedziału 0-265, zatem pełni ona rolę identyfikatora miast, więc ją usuwamy.
+
+``` {r usuwanie_identyfikatora_danych, echo=FALSE}
+# usuwamy pierwszą kolumne, bo pełni rolę identyfikatora
+dane.2 <- dane.2[,-1]
+
+# dołączanie zmiennych
+attach(dane.2)
+```
+
+
+``` {r brakujace_obserwacje, echo=FALSE}
+# liczba brakujących obserwacji
+braki <- colSums(is.na(dane.2))
+```
+Nie zaobserwowaliśmy żadnych brakujących danych w tym zbiorze.
+Sprawdźmy teraz czy w zbiorze danych występują jakieś niestandardowe kodowania wartości brakujących. W związku z tym zmienne \textbf{UA\_name}, \textbf{UA\_Country} oraz \textbf{UA\_Continent} w celu dalszej analizy zamieniamy na typ factor. \newpage
+Przyjrzyjmy się także zmiennym ilościowym.
+``` {r nietypowe_kodowania, echo=FALSE, results='asis'}
+# konwersja zmiennych typu character na typ factor
+dane.2$UA_Name <- as.factor(dane.2$UA_Name)
+dane.2$UA_Country <- as.factor(dane.2$UA_Country)
+dane.2$UA_Continent <- as.factor(dane.2$UA_Continent)
+attach(dane.2)
+
+# liczba wartości
+wartosci_miasta <- length(unique(UA_Name))
+wartosci_kraje <- length(unique(UA_Country))
+wartosci_kontynenty <- length(unique(UA_Continent))
+
+# liczba poziomow
+poziomy_miasta <- nlevels(UA_Name)
+poziomy_kraje <- nlevels(UA_Country)
+poziomy_kontynenty <- nlevels(UA_Continent)
+
+# wybór danych zawierających wyłącznie cechy ilościowe
+ilosciowe <- which(sapply(dane.2, is.numeric))
+dane.2.num <- dane.2[,ilosciowe]
+niet_wart_il_2 <- sapply(dane.2.num, function(x) {summary(x)})
+
+# utworzenie tabeli
+niet_kod_2 <- xtable(t(niet_wart_il_2),
+                  caption="Wskaźniki sumaryczne dla zmiennych ilościowych",
+                  label="tab_niet_kod_2", 
+                  digits=3)
+
+print(niet_kod_2, table.placement = "H",comment=FALSE, scalebox=1.12)
+```
+Wniosek: Dla wszystkich trzech zmiennych jakościowych liczba wartości przyjmowanych przez daną cechę pokrywa się z liczbą jej poziomów, zatem możemy wnioskować, że nie występują żadne nietypowane kodowania wartości brakujących. Dla zmiennych ilościowych ich wskaźniki sumaryczne (Tabela nr \ref{tab_niet_kod_2}) również nie wskazują na występowanie jakichś niestandardowych kodowań - wszystkie wartości mieszczą się w założonym zakresie teoretycznym 0-10.
+\newpage
+\vspace{0.3cm}
+
+## Przygotowanie danych
+
+
+Wybieramy do analizy wyłącznie cechy ilościowe.
+Wyznaczmy wariancje poszczególnych cech. 
+```{r wariancje, echo=FALSE, results='asis'}
+# wariancje poszczególnych cech
+wariancje <- diag(var(dane.2.num))
+df_wariancje <- data.frame("Wariancja" = wariancje)
+rownames(df_wariancje) <- names(wariancje)
+
+# utworzenie tabeli
+tabela_wariancji <- xtable(df_wariancje, 
+                           caption= "Tabela wariancji dla zmiennych ilościowych",
+                           label= "tab.war.1",
+                           digits=3)
+print(tabela_wariancji, type="latex", table.placement = "H", comment=FALSE, scalebox=1.12)
+```
+Wariancje dla poszczególnych zmiennych znacząco się różnią. Największą wariancją charakteryzuje się zmienna \textbf{Venture.Capital}, najmniejszą zaś cechuje się zmienna \textbf{Healthcare}. Świadczy to o tym, że dostęp do kapitału wysokiego ryzyka w różnych miejscach na świecie jest silnie zróżnicowany, w przeciwieństwie do poziomu opieki zdrowotnej, który w większości zbadanych miejsc jest na zbliżonym poziomie (choć występują także pojedyncze przypadki znacznie odbiegające od średniej).
+\newpage
+Sprawdzamy również konieczność standaryzacji danych na podstawie wykresów pudełkowych.
+```{r bez_standaryzacji, echo=FALSE, fig.cap="Wykresy pudełkowe dla zmiennych ilościowych przed standaryzacją \\label{fig.bez.stand}", fig.align='center', fig.width=7.5, fig.height=3.5, out.width="100%"}
+# wykresy pudełkowe przed standaryzacją
+kolory5 <- colorRampPalette(c("indianred", "seagreen"))
+boxplot(dane.2.num, col=kolory5(17), main="Wariancja zmiennych ilościowych bez standaryzacji", xaxt="n")
+
+etykiety <- colnames(dane.2.num)
+text(x=1:length(etykiety), y=par("usr")[3]-0.5, labels=etykiety, srt=45, adj=1, xpd=TRUE, cex=0.75)
+```
+
+``` {r z_standaryzacja, echo=FALSE, fig.cap="Wykresy pudełkowe dla zmiennych ilościowych po standaryzacji \\label{fig.stand}", fig.align='center', fig.width=7.5, fig.height=3.5, out.width="100%"}
+# wykresy pudełkowe po standaryzacji
+kolory6 <- colorRampPalette(c("lavender", "palegreen"))
+boxplot(scale(dane.2.num), col=kolory6(17), main="Wariancja zmiennych ilościowych po standaryzacji", xaxt="n")
+
+text(x=1:length(etykiety), y=par("usr")[3]-0.5, labels=etykiety, srt=45, adj=1, xpd=TRUE, cex=0.75)
+```
+W tym przypadku zastosowanie standaryzacji jest konieczne, ponieważ mimo, iż wszystkie zmienne mają wartości z przedziału 0-10, to ich rozkłady mocno się różnią, co potwierdza wykres pudełkowy zamieszczony na Rysunku nr \ref{fig.bez.stand}. Rysunek nr \ref{fig.stand} przedstawia wariancje zmiennych po standaryzacji. Zauważalna jest znaczna różnica w układzie wykresów, są one zbliżonej szerokości i prawie na tym samym poziomie, więc można je łatwo ze sobą porównać. Ponieważ PCA jest metodą wrażliwą na różnice w skali wariancji, zastosowanie standaryzacji jest niezbędne, aby każda ze zmiennych miała jednakowy wpływ na wyznaczenie składowych głównych.
+
+\vspace{0.3cm}
+
+## Wyznaczenie składowych głównych
+
+
+```{r skladowe_glowne, echo=FALSE, fig.cap="Wykres pudełkowy rozrzutu składowych głównych dla zmiennych ilościowych \\label{fig.roz}", fig.align='center', fig.width=7.5, out.width="100%"}
+# Wyznaczanie składowych głównych
+dane.pca <- prcomp(dane.2.num, retx=TRUE, center=TRUE, scale=TRUE)
+
+# porównanie rozrzutu składowych głównych za pomocą wykresów pudełkowych
+kolory7 <- colorRampPalette(c("skyblue", "rosybrown1"))
+boxplot(dane.pca$x, main="Rozrzut głównych składowych", col=kolory7(17), xaxt="n")
+
+podpisy <- paste0("PC", 1:17)
+text(x=1:17, y=par("usr")[3]-0.5, labels=podpisy, srt=45, adj=1, xpd=TRUE, cex=0.75)
+```
+Wykres rozrzutu składowych głównych (Rysunek nr \ref{fig.roz}) wskazuje, że pierwsze składowe (PC1-PC3) charakteryzują się znacznym rozrzutem wartości, co sugeruje, że dobrze różnicują one badane obiekty. Składowe o wyższych numerach (PC15-PC17) mają mniejszą wariancję, co potwierdza, że wnoszą mniej informacji do ogólnej zmienności zbioru. Obecność licznych wartości odstających w składowych PC5 czy PC10 sugeruje istnienie specyficznych obserwacji, które nie wpisują się w główny trend tych wymiarów.
+
+
+Przeanalizujmy wektory ładunków dla kilku pierwszych składowych głównych.
+```{r wektory_ladunkow_PC1, echo=FALSE, results='asis', fig.align='center'}
+# wektory ładunków (loadings) dla PC1, PC2, PC3
+wekt_lad <- dane.pca$rotation[, 1:3]
+
+# PC1
+wektor_1 <- wekt_lad[,1]
+najw_wklad_1 <- sort(abs(wektor_1), decreasing=TRUE)[1:3]
+jakie_zmienne_1 <- names(najw_wklad_1)
+
+# funkcja pomocnicza do badania znaku danej zmiennej w wektorze ładunków
+badanie_znaku <- function(x) {
+  if (x<0) {
+    return ("-")
+  } else {
+    return ("+")
+  }
+}
+
+
+# tworzenie tabeli
+df_wklad_1 <- data.frame("Wartość (bezwzględna)" = round(najw_wklad_1, 3),
+                         "Znak wartości ładunku" = c(badanie_znaku(wektor_1[jakie_zmienne_1[1]]), badanie_znaku(wektor_1[jakie_zmienne_1[2]]), badanie_znaku(wektor_1[jakie_zmienne_1[3]])), check.names = FALSE)
+
+rownames(df_wklad_1) <- names(najw_wklad_1)
+df_wklad_1 <- t(df_wklad_1)
+
+tabela_wklad_1 <- xtable(df_wklad_1,
+                         caption="Zmienne o największym wkładzie dla pierwszej składowej", 
+                         label="tab.wkl.1",
+                         digits=3)
+print(tabela_wklad_1, type="latex", table.placement = "H", comment=FALSE)
+```
+Największy wkład dla składowej PC1 mają zmienne \textbf{Education}, \textbf{Business.Freedom} oraz \textbf{Environmental.Quality} (Tabela \ref{tab.wkl.1}). Oznacza to, że to poziom wykształcenia, swoboda w prowadzeniu działalności gospodarczej oraz otoczenie mają największy wpływ na jakość życia mieszkańców danego miasta (najlepiej charakteryzują one poziom życia danego regionu). Wszystkie te zmienne wykazują się silną współzależnością (ładunki tych samych znaków), więc możemy wnioskować, że w badanych jednostkach obszary te rozwijają się równolegle.
+
+``` {r wektory_ladunkow_PC2, echo=FALSE, results='asis'}
+# PC2
+wektor_2 <- wekt_lad[,2]
+najw_wklad_2 <- sort(abs(wektor_2), decreasing=TRUE)[1:3]
+jakie_zmienne_2 <- names(najw_wklad_2)
+
+# tworzenie tabeli
+df_wklad_2 <- data.frame("Wartość (bezwzględna)" = round(najw_wklad_2, 3),
+                         "Znak wartości ładunku" = c(badanie_znaku(wektor_2[jakie_zmienne_2[1]]), badanie_znaku(wektor_2[jakie_zmienne_2[2]]), badanie_znaku(wektor_2[jakie_zmienne_2[3]])), check.names = FALSE)
+
+rownames(df_wklad_2) <- names(najw_wklad_2)
+df_wklad_2 <- t(df_wklad_2)
+
+tabela_wklad_2 <- xtable(df_wklad_2,
+                         caption="Zmienne o największym wkładzie dla drugiej składowej", 
+                         label="tab.wkl.2",
+                         digits=3)
+print(tabela_wklad_2, type="latex", table.placement = "H", comment=FALSE)
+```
+W przypadku składowej PC2 największe wagi mają cechy \textbf{Startups}, \textbf{Venture.Capital} oraz \textbf{Leisure...Culture} (Tabela \ref{tab.wkl.2}). Możemy więc wywnioskować, że duże znaczenie dla jakości życia mają zmienne związane z rynkiem przedsiębiorstw. Można domniemywać, że łatwość zakładania nowych działalności gospodarczych a przy tym dostęp do kapitału wysokiego ryzyka pozytywnie wpływają na poziom życia. Poza tym możliwość spędzania wolnego czasu w sposób ciekawy i rozwijający również odgrywa znaczącą rolę. Cechy te również charakteryzują się współzależnością, zatem możemy interpretować tę składową jako wymiar innowacyjności i dynamiki biznesowej miasta.
+
+
+``` {r wektory_ladunkow_PC3, echo=FALSE, results='asis'}
+# PC3
+wektor_3 <- wekt_lad[,3]
+najw_wklad_3 <- sort(abs(wektor_3), decreasing=TRUE)[1:3]
+jakie_zmienne_3 <- names(najw_wklad_3)
+
+# tworzenie tabeli
+df_wklad_3 <- data.frame("Wartość (bezwzględna)" = round(najw_wklad_3, 3),
+                         "Znak wartości ładunku" = c(badanie_znaku(wektor_3[jakie_zmienne_3[1]]), badanie_znaku(wektor_3[jakie_zmienne_3[2]]), badanie_znaku(wektor_3[jakie_zmienne_3[3]])), check.names = FALSE)
+
+rownames(df_wklad_3) <- names(najw_wklad_3)
+df_wklad_3 <- t(df_wklad_3)
+
+tabela_wklad_3 <- xtable(df_wklad_3,
+                         caption="Zmienne o największym wkładzie dla trzeciej składowej", 
+                         label="tab.wkl.3",
+                         digits=3)
+print(tabela_wklad_3, type="latex", table.placement = "H", comment=FALSE)
+```
+Dla PC3 największym wkładem cechują się zmienne \textbf{Commute}, \textbf{Travel.Connectivity} i \textbf{Safety} (Tabela \ref{tab.wkl.3}). Wynika stąd więc, że ogromne znaczenie mają także cechy powiązane z dojazdem (infrastruktura komunikacyjna) i bezpieczeństwem. W tym przypadku także zmienne te są współzależne, więc ponownie możemy wysnuć wnioski o jednoczesnym rozwoju tych obszarów w badanych miastach.
+
+
+Zatem najlepiej różnicującymi zmiennymi, biorąc pod uwagę trzy pierwsze składowe główne, są cechy powiązane z edukacją, wolnością gospodarczą i jej zabezpieczeniem (szczególnie na etapie początkowym, gdy jest najbardziej zagrożona upadkiem), rozrywką, łącznością i bezpieczeństwem. Na podstawie tych zmiennych moglibyśmy zatem przeprowadzić stosunkowo "rzetelną" analizę jakości życia mieszkańców danego obszaru. 
+
+
+
+
+## Zmienność odpowiadająca poszczególnym składowym
+
+
+Tabela nr \ref{tab.var} przedstawia jaki procent wyjaśnionej wariancji odpowiada poszczególnym składowym głównym. Dodatkowo przedstawia ona procent skumulowanej wariancji dla konkretnych składowych głównych.
+
+```{r wariancja_i_skumulowana_wariancja, echo=FALSE, results='asis'}
+# wariancje odpowiadające poszczególnym składowym głównym
+suma <- sum((dane.pca$sdev)^2) #sumuje się do 17 tak jak powinno
+
+# wariancje
+war <- (dane.pca$sdev)^2
+
+# frakcje wariancji
+variances <- war/suma
+
+# skumulowane wariancje
+cumulative.variances <- cumsum(variances)
+
+# tworzenie tabeli
+df_var <- data.frame("Procent" = paste0(round(variances*100, 3), "%"), 
+                     "Procent skumulowanej wariancji" = paste0(round(cumulative.variances*100, 3), "%"), check.names = FALSE)
+rownames(df_var) <- c(paste0("PC", 1:17))
+
+tabela_var <- xtable(df_var, 
+                        caption="Procent wyjaśnionej wariancji i skumulowanej wariancji odpowiadający poszczególnym składowym głównym",
+                        label="tab.var",
+                        digits=3, 
+                        align = "lrp{4.5
+                     cm}")
+print(tabela_var, type="latex", table.placement = "H", comment=FALSE, scalebox=1.12)
+```
+
+Na podstawie wyników z Tabeli \ref{tab.var} możemy zaobserwować, że dla progu wariancji 80% wystarczy pierwsze 7 składowych głównych, a dla progu 90% potrzebujemy co najmniej 10 składowych.  
+
+```{r skumulowana_wariancja_80, echo=FALSE, fig.cap="Wykres słupkowy wariancji skumulowanej z naniesionym poziomem 80% \\label{fig:cumsum.80}", fig.align='center', out.width="100%", fig.width=6, fig.height=3.3}
+# wykres słupkowy skumulowanej wariancji z naniesionymi poziomem 80%
+kolory8 <- colorRampPalette(c("paleturquoise1", "slategray3"))
+cumsum_wykr_1 <- barplot(cumulative.variances, main="Skumulowane wariancje głównych składowych", col=kolory8(17), xaxt="n",
+        xlab="Numer składowej głównej", ylab= "Udział w skumulowanej wariancji")
+abline(h=0.80, col="maroon", lwd = 3)
+
+text(x=cumsum_wykr_1+0.5, y=-0.05, labels=podpisy, srt=45, adj=1, xpd=TRUE, cex=0.75)
+```
+Na Rysunku \ref{fig:cumsum.80} widzimy, że pierwszy słupek, który wystaje ponad linię progu 80% to ten odpowiadający 7 składowej głównej. Potwierdza to naszą obserwację, że dla progu wariancji 80% potrzebujemy 7 składowych. 
+
+```{r skumulowana_wariancja_90, echo=FALSE, fig.cap="Wykres słupkowy wariancji skumulowanej z naniesionym poziomem 90% \\label{fig:cumsum.90}", fig.width=6, fig.height=3.3, out.width="100%", fig.align='center'}
+# wykres słupkowy skumulowanej wariancji z naniesionymi poziomem 90%
+kolory9 <- colorRampPalette(c("lightcyan", "darkseagreen"))
+cumsum_wykr_2 <- barplot(cumulative.variances, main="Skumulowane wariancje głównych składowych", col=kolory9(17),
+        xlab="Numer składowej głównej", ylab= "Udział w skumulowanej wariancji", xaxt="n")
+abline(h=0.90, col="maroon", lwd = 3)
+
+text(x=cumsum_wykr_2+0.5, y=-0.05, labels=podpisy, srt=45, adj=1, xpd=TRUE, cex=0.75)
+```
+Na Rysunku \ref{fig:cumsum.90} widzimy, że pierwszy słupek, który przekracza linię progu 90% to ten odpowiadający 10 składowej głównej. Potwierdza to naszą obserwację, że dla progu wariancji 90% potrzebujemy 10 składowych.
+
+
+Na podstawie obu wykresów na Rysunkach \ref{fig:cumsum.80} oraz \ref{fig:cumsum.90} możemy zauważyć, że wzrost słupków jest najszybszy na starcie, dla początkowych składowych, a następnie staje się coraz mniejszy i wykresy się spłaszczają. Oznacza to, że większość kluczowej zmienności zbioru jest skoncentrowana w początkowych wymiarach.
+
+\vspace{0.3cm}
+
+## Wizualizacja danych wielowymiarowych
+```{r wizualizacja_pca, echo=FALSE, fig.width=7.5, fig.height=6.5, fig.align='center', out.width="100%", fig.cap="Wykres PCA \\label{fig:wykres_pca}"}
+# Kolory (mamy 6 etykiet kontynentów)
+attach(dane.2)
+
+UA_Continent <- as.factor(UA_Continent)
+#length(unique(UA_Country)) jest 135 państw
+#length(unique(UA_Continent)) jest 6 kontynentów
+kolory <- rainbow(6)
+ksztalty <- 15:20
+# wykres w przestrzeni (PC1,PC2)
+plot(dane.pca$x[,1], dane.pca$x[,2], 
+     col = kolory[as.numeric(UA_Continent)], 
+     pch = ksztalty[as.numeric(UA_Continent)],
+     ylab="PC2", xlab="PC1", main="Wykres rozrzutu dla dwóch pierwszych \nskładowych głównych (2D)")
+
+# Nanosimy tekst z nazwami miast
+text(dane.pca$x[,1], dane.pca$x[,2]+0.2,labels = UA_Name, cex=0.3)
+
+# dodajemy legendę względem nazw kontynentów
+legend("bottomright", legend = levels(UA_Continent), pch=ksztalty, cex=0.7, col=kolory)
+
+# ze względu na ujemne znaki ładunków wyższy poziom danej cechy = niższe wartości PC1/PC2
+```
+
+Na Rysunku \ref{fig:wykres_pca} można zauważyć, że w lewej górnej części wykresu skupiają się miasta europejskie, charakteryzujące się między innymi wysokim poziomem edukacji, wolności biznesowej i jakości środowiska. 
+Miasta Ameryki Północnej również znajdują się w większości po lewej stronie osi PC1, lecz są bardziej rozproszone względem osi PC2, co oznacza dużą różnorodność pod względem innowacyjności
+i dynamiki biznesowej. Przykładem miasta wysoko rozwiniętego pod praktycznie każdym względem jest Nowy Jork, który leży w skrajnym lewym dolnym rogu.
+Miasta Azji są rozproszone po całym wykresie, zatem są one mocno zróżnicowane.
+Miasta afrykańskie natomiast są najbardziej odizolowane od reszty kontynentów i mieszczą się po prawej stronie wykresu, co oznacza najniższy standard życia w kontekście składowej PC1. 
+Ameryka Południowa zaś mieści się głównie w centralnej części po prawej stronie, czyli charakteryzuje się umiarkowanym poziomem wykształcenia, swobody w prowadzeniu działalności gospodarczej lub jakości środowiska, jednak wykazuje się niższą dynamiką startupową i innowacyjnością.
+
+Możemy również zaobserwować miasta, które znacząco odbiegają od głównych skupisk swojego kontynentu.
+Miasta takie jak Singapur, Hong Kong, Tokio czy Seul znajdują się bliżej lewego krańca wykresu, co świadczy o wyższym poziomie edukacji i wolności biznesowej niż w większości miast tego kontynentu.
+Miasta takie jak Paryż, czy Londyn, są przesunięte mocno w dół osi PC2, czyli wykazują wyższą innowacyjność i dynamikę startupową.
+Caracas jest miastem skrajnie przesuniętym do prawej i charakteryzuje się wyjątkowo niskim poziomem wykształcenia, swobody w prowadzeniu działalności gospodarczej lub jakości środowiska.
+
+
+\vspace{0.3cm}
+
+## Korelacja zmiennych
+
+```{r macierz_korelacji, echo=FALSE, results='asis', fig.cap="Macierz korelacji zmiennych \\label{fig:macierz.kor}",fig.align='center', out.width="100%", fig.width=7.5, fig.height=5}
+library(corrplot)
+
+macierz.kor <- cor(dane.2.num)
+corrplot(macierz.kor,
+         method = "color", tl.cex = 0.6,
+         addCoef.col = "black", number.cex = 0.6)
+
+# Wyższy wynik w Housing i Cost.Of.Living oznacza większą przystępność cenową, czyli niższy wynik oznacza wyższe koszty
+```
+Na podstawie macierzy korelacji umieszczonej na Rysunku \ref{fig:macierz.kor} możemy zauważyć, że najwyższa korelacja zachodzi pomiędzy zmiennymi **Startups** a **Venture.Capital** i wynosi ona 0.80. Wyraźną zależność widać również między **Education** a **Business.Freedom** (0.76) oraz **Environmental.Quality** (0.60). Oznacza to, że miasta o wyższym poziomie edukacji często posiadają lepsze warunki do rozwoju biznesu oraz zachowują dbałość o środowisko. Silnie skorelowany jest również **Housing** z **Cost.of.Living** (0.79), zmienne te natomiast są ujemnie skorelowane z edukacją, gospodarką i jakością środowiska. Sugeruje to, że najwyższy poziom edukacji, gospodarki i czyste środowisko często wiążą się z wysokimi kosztami życia i mieszkań w danym mieście. 
+
+
+```{r korelacja_pca, echo=FALSE, out.width="100%", fig.cap="Dwuwykres analizy składowych głównych (PCA) \\label{fig:biplot_pca}", fig.width=7, fig.height=4}
+# dwuwykres (biplot) przy pomocy pakietu factoextra
+library(factoextra)
+
+# domyślne parametry
+# fviz_pca_biplot(dane.pca)
+# 
+# # usuwamy nazwy przypadków
+# fviz_pca_biplot(dane.pca, label="var")
+# 
+# # dodajemy kolory odpowiadające ustalonym grupom/klasom
+# fviz_pca_biplot(dane.pca, label="var", col.ind = UA_Continent)
+
+# dodajemy elipsy koncentracji
+fviz_pca_biplot(dane.pca, label="var", col.ind = UA_Continent, addEllipses = TRUE,
+                xlab="PC1 (29.8%)", ylab="PC2 (15.2%)",
+                title="Biplot analizy PCA")
+
+```
+
+Na podstawie Rysunku \ref{fig:biplot_pca} widzimy, że większość wektorów zmiennych jest skierowana w lewą stronę wykresu, zaś wektory **Housing** oraz **Cost.of.Living** mają zwroty przeciwne do reszty, co potwierdza ujemną korelację między znaczącą ilością cech podwyższających standard a kosztami życia w mieście.
+Wektory zmiennych **Startups** i **Venture.Capital** znajdują się blisko siebie, co zgadza się z silną korelacją dodatnią pokazaną wcześniej w macierzy. Podobne zjawisko widzimy dla **Education**,  **Business.Freedom** oraz **Environmental.Quality**. Potwierdzają się również nasze wcześniejsze obserwacje dotyczące rozwoju miast na poszczególnych kontynentach. Widzimy między innymi, że Azja obejmuje swoim zakresem największy obszar, zatem jest to kontynent najbardziej zróżnicowany. Natomiast Afryka koncentruje się w prawej części wykresu i jest wyraźnie odseparowana od reszty kontynentów, jest to region związany z wyższymi wartościami **Housing** i **Cost.of.Living** w stosunku do pozostałych zmiennych.
+
+
+\vspace{0.3cm}
+
+## Końcowe wnioski
+
+Przeprowadzona analiza PCA pozwala nam na sformułowanie następujących wniosków:
+
+\begin{itemize}
+\item Zastosowanie standaryzacji (skalowania) miało kluczowy wpływ na otrzymane wyniki.
+Ponieważ analizowane zmienne (np. koszty życia, wskaźniki bezpieczeństwa czy liczba startupów) mają różne wariancje i rozkłady, bez standaryzacji cechy o największej wariancji zdominowałyby całą analizę
+
+\item Aby wyjaśnić 80\% zmienności danych należy uwzględnić 7 składowych głównych, a dla poziomu 90\%, wystarczy 10 początkowych składowych z 17. Oznacza to, że redukcja do 7-10 wymiarów nadal zachowuje dużą ilość informacji, a to świadczy o silnych korelacjach pomiędzy zmiennymi oraz efektywności metody PCA. 
+
+\item Analiza składowych głównych pozwoliła nam wywnioskować, że pierwsza składowa główna (PC1) często odpowiada cechom takim jak edukacja, jakość środowiska oraz swoboda w prowadzeniu działalności gospodarczej i pozwala nam różnicować miasta pod względem ogólnego standardu. Wizualizacja danych zaś pozwoliła nam na scharakteryzowanie miast poszczególnych kontynentów. 
+
+\item Analiza macierzy korelacji oraz dwuwykresu (biplotu) pozwoliła nam na wykrycie zależności pomiędzy zmiennymi. Silna dodatnia korelacja między edukacją, wolnością biznesową a jakością środowiska sugeruje, że obszary te często rozwijają się wspólnie. Zaobserwowano również ujemną korelację między większością zmiennych a kosztami utrzymania i mieszkań, co oznacza, że miasta oferujące najlepszą jakość życia są jednocześnie kosztowne.
+
+\end{itemize}
+
+
+\vspace{1cm}
+
+# Skalowanie wielowymiarowe (Multidimensional Scaling (MDS))
+    
+\vspace{0.3cm}
+
+## Dane
+
+```{r,  echo=FALSE}
+#install.packages("titanic")
+# dołączenie pakietu titanic
+library(titanic)
+
+# wczytanie danych titanic_train z tego pakietu
+dane3 <- titanic_train
+attach(dane3)
+# sapply(dane3, range, na.rm = TRUE)
+# head(dane3)
+# str(dane3)
+```
+
+Dane *titanic_train* pochodzą z pakietu bazowego R - pakietu *titanic*.
+Zbiór danych zawiera wybrane charakterystyki opisujące pasażerów Titanica (w tym m.in. takie zmienne jak: wiek, płeć, miejsce rozpoczęcia podróży czy klasa pasażerska) wraz z informacją czy dana osoba przeżyła katastrofę (zmienna Survived).
+
+ 
+W zbiorze znajduje się `r nrow(dane3)` obserwacji. Cech mamy `r ncol(dane3)` i są nimi:
+
+\begin{itemize}
+\item \textbf{PassengerId} (numeric; zakres: 1-891) - identyfikator pasażera
+\item \textbf{Survived} (numeric; zakres: 0-1) - informacja czy pasażer przeżył katastrofę (0 = Nie, 1 = Tak)
+\item \textbf{Pclass} (numeric; zakres: 1-3) - klasa biletu (1 = najwyższa, 3 = najniższa)
+\item \textbf{Name} (character; 891 unikalnych wartości) - imię i nazwisko pasażera
+\item \textbf{Sex} (character; 2 unikalne wartości) - płeć pasażera
+\item \textbf{Age} (numeric; zakres: 0.42-80) - wiek pasażera
+\item \textbf{SibSp} (numeric; zakres: 0-8) - liczba rodzeństwa obecnego na pokładzie
+\item \textbf{Parch} (numeric; zakres: 0-6) - liczba rodziców lub dzieci obecnych na pokładzie
+\item \textbf{Ticket} (character; 681 unikalnych wartości) - numer biletu
+\item \textbf{Fare} (numeric; zakres: 0-512.3292) - opłata za przejazd 
+\item \textbf{Cabin} (character; 148 unikalnych wartości) - numer kabiny
+\item \textbf{Embarked} (character; 4 unikalne wartości) - port zaokrętowania (C = Cherbourg, \\Q = Queenstown, S = Southampton)
+
+\end{itemize}
+
+\vspace{0.3cm}
+
+## Przygotowanie danych
+
+
+```{r wczytanie_danych_titanic,  echo=FALSE}
+# opcjonalna instalacja pakietu, jeśli go nie mamy
+#install.packages("titanic")
+# dołączenie pakietu titanic
+library(titanic)
+
+# wczytanie danych titanic_train z tego pakietu
+dane3 <- titanic_train
+attach(dane3)
+#View(dane3)
+# head(dane3)
+
+# liczba wartości unikalnych
+# length(unique(Name))
+# length(unique(Sex))
+# length(unique(Ticket))
+# length(unique(Cabin))
+# length(unique(Embarked))
+
+```
+
+
+Zmienne **PassengerId**, **Name**, **Ticket**, **Cabin** pełnią rolę identyfikatorów, więc je usuwamy. Zmienne **Survived**, **Sex**, **Embarked** zamieniamy na typ factor, a **Pclass** na ordered factor. Poziomy zmiennych po konwersji zostały przedstawione w Tabeli \ref{poziomy_titanic}.
+
+
+```{r konwersja_typow_titanic, results='asis', echo=FALSE}
+# Usuwamy niepotrzebne zmienne
+dane3 <- subset(dane3, select = -c(PassengerId, Name, Ticket, Cabin))
+# konwersje typów cech
+dane3$Survived <- as.factor(dane3$Survived)
+dane3$Pclass <- as.ordered(dane3$Pclass)
+dane3$Sex <- as.factor(dane3$Sex)
+dane3$Embarked <- as.factor(dane3$Embarked)
+attach(dane3)
+
+#poziomy po konwersji
+zmienne_factor <- dane3[sapply(dane3, is.factor)]
+poziomy <- data.frame("Zmienna" = names(zmienne_factor), 
+                      "Poziomy" = sapply(zmienne_factor,
+                                         function(x) paste(levels(x), collapse = ", ")), 
+                      "Liczba poziomów" = sapply(zmienne_factor, function(x) nlevels(x)),
+                      check.names = FALSE)
+tab_poziomy <- xtable(poziomy,
+                  caption = "Poziomy zmiennych typu factor",
+                  label = "poziomy_titanic")
+print(tab_poziomy, table.placement = "H", comment = FALSE, include.rownames = FALSE)
+
+#str(dane3)
+```
+
+Na podstawie Tabeli \ref{poziomy_titanic} możemy zauważyć, że dla zmiennej **Embarked** występuje nietypowy poziom - pusty znak (""), co wskazuje na niestandardowe kodowanie wartości brakujących. Zamieniamy więc te wartości na \texttt{NA} i redukujemy liczbę poziomów do 3. 
+
+
+```{r wart_brakujace_titanic,  echo=FALSE, results='asis'}
+dane3$Embarked[dane3$Embarked == ""] <- NA
+dane3$Embarked <- droplevels(as.factor(dane3$Embarked))
+attach(dane3)
+
+#levels(Embarked)
+#nlevels(Embarked)
+# czy w danych występują brakujące wartości?
+#sum(is.na(dane3))
+tab.na <- data.frame(
+  Zmienna = names(dane3),
+  "Liczba braków" = colSums(is.na(dane3)),
+  check.names = FALSE
+)
+
+xtab.na <- xtable(tab.na,
+                  caption = "Braki w danych.",
+                  label = "tab.na.dane")
+print(xtab.na,
+      type = "latex",
+      table.placement = "H",
+      comment = FALSE,
+      include.rownames = FALSE)
+
+```
+
+W Tabeli \ref{tab.na.dane} widnieje, że braki danych występują dla zmiennej **Age** dla 177 obserwacji oraz dla zmiennej **Embarked** dla 2 obserwacji.
+
+Sprawdźmy wskaźniki sumaryczne dla zmiennych ilościowych. 
+``` {r wskazniki_titanic, echo=FALSE, results='asis'}
+
+# wskazniki sumaryczne dla zmiennych ilosciowych
+
+# wybór danych zawierających wyłącznie cechy ilościowe
+ilosciowe <- which(sapply(dane3, is.numeric))
+dane3.num <- dane3[ilosciowe]
+wskazniki_sum_3 <- do.call(rbind, lapply(dane3.num, function(x) {summary(na.omit(x))}))
+# utworzenie tabeli
+wskazniki_sum_3 <- xtable(wskazniki_sum_3,
+                  caption = "Wskaźniki sumaryczne dla zmiennych ilościowych",
+                  label = "wsk_sum_3")
+print(wskazniki_sum_3, table.placement = "H", comment = FALSE)
+```
+
+Dla zmiennych ilościowych ich wskaźniki sumaryczne (Tabela \ref{wsk_sum_3}) nie wskazują na występowanie jakichś niestandardowych kodowań. 
+
+\vspace{0.3cm}
+
+## Redukcja wymiaru na bazie MDS
+
+Kolumnę **Survived** traktujemy jako zmienną grupującą i nie będziemy jej wykorzystywali do przeprowadzenia redukcji wymiaru. Wartości brakujące dla zmiennej **Age** zastępujemy medianą, zaś braki dla zmiennej **Embarked** wystąpiły tylko dla dwóch obserwacji, więc możemy je usunąć.
+
+Do obliczenia miar niepodobieństwa wykorzystujemy odległość Gowera, ponieważ pozwoli nam to na uwzględnienie zarówno zmiennych jakościowych jak i ilościowych.
+
+```{r skalowanie.mds,  echo=FALSE,  fig.width=4, fig.height=4, fig.cap="Shepard diagram \\label{fig:shepard}"}
+
+library(cluster)
+dane3$Age[is.na(dane3$Age)] <- median(dane3$Age, na.rm = TRUE)
+dane3 <- dane3[!is.na(dane3$Embarked), ]
+#dane3 <- na.omit(dane3)
+attach(dane3)
+data.mds <- subset(dane3, select=-Survived) #pomijamy zmienną Survived
+
+# Wyznaczamy macierz niepodobieństwa/odmienności
+dissimilarities <- daisy(data.mds, stand = TRUE) #odległość Gowera
+dis.matrix <- as.matrix(dissimilarities)
+
+
+# skalowanie klasyczne - classical (metric) Multidimensional Scaling 
+mds.k2 <- cmdscale(dis.matrix, k=2)
+
+# obliczamy odległości euklidesowe w nowej przestrzeni
+dist.mds.k2 <- dist(mds.k2, method="euclidean")
+dist.mds.k2 <- as.matrix(dist.mds.k2)
+
+# kryterium STRESS
+dis.original <- dis.matrix
+STRESS <- (sum((dis.original - dist.mds.k2)^2)/ sum(dis.original^2)) 
+
+plot(dis.original, dist.mds.k2, main="Shepard diagram", cex=0.5, xlab="original distance", ylab="distance after MDS mapping", col="lavender")
+abline(coef=c(0,1), col="red", lty=2, lwd=2) # przekątna
+
+# wskaźnik STRESS jest nieco niższy jeśli całkowicie usuniemy obserwacje, w których występują braki danych
+```
+Wartość wskaźnika STRESS jest równa `r round(STRESS,2)`, co wskazuje na dobre odwzorowanie. Na diagramie Sheparda przedstawionym na Rysunku \ref{fig:shepard} obserwujemy, że punkty układają się rosnąco wzdłuż przekątnej, choć występują pewne rozproszenia. Oznacza to, że odległości po redukcji wymiaru, pomimo pewnych zniekształceń, dobrze odzwierciedlają rzeczywiste miary niepodobieństwa.
+
+\vspace{0.3cm}
+
+## Wizualizacja danych
+
+```{r rozrzut_mds, echo=FALSE, fig.width=6, fig.height=5, fig.cap="Wykres rozrzutu 2D \\label{fig:rozrzut.mdsk2}"}
+# Przedstawiamy dane na wykresie rozrzutu 2D w przestrzeni (MDS1, MDS2)
+plot(mds.k2[,1],mds.k2[,2], pch=16, col = c("#EE1289", "#009ACD")[dane3$Survived], xlab="MDS1", ylab="MDS2")
+legend("topright", legend = c("Zginął", "Przeżył"),
+       col = c("#EE1289", "#009ACD"), pch = 19, cex = 0.8)
+title("Wykres przeżywalności po zastosowaniu \nskalowania klasycznego")
+
+```
+
+Na Rysunku \ref{fig:rozrzut.mdsk2} widzimy wyraźny podział na dwa skupiska, które odpowiadają pasażerom o podobnych cechach. Lewa grupa odpowiada w większości osobom, które ocalały, podczas gdy prawa tym, które zginęły. Możemy zauważyć, że im obserwacja znajduje się bardziej po lewej stronie na wykresie względem osi *MDS1*, tym osoba miała większe szanse na przeżycie. Sugeruje to, że pewne kombinacje cech miały istotny wpływ na los pasażerów.
+
+```{r wizualizacja_danych, echo=FALSE, fig.height=4, fig.cap="Wykres rozrzutu 2D z podziałem na grupy \\label{fig:rozrzut.mdsk2.podzial}"}
+
+par(mfrow = c(1, 3))
+
+## Survived
+plot(mds.k2[,1], mds.k2[,2], pch = 19,
+     col = c("#EE1289", "#009ACD")[dane3$Survived],
+     xlab = "MDS1", ylab = "MDS2", main = "Przeżywalność")
+legend("topright", legend = c("Zginął", "Przeżył"),
+       col = c("#EE1289", "#009ACD"), pch = 19, cex = 0.8)
+
+## Sex
+plot(mds.k2[,1], mds.k2[,2], pch = 19,
+     col = c("skyblue2", "blue")[dane3$Sex],
+     xlab = "MDS1", ylab = "MDS2", main = "Płeć")
+legend("topright", legend = c("Kobieta", "Mężczyzna"),
+       col = c("skyblue2", "blue"), pch = 19, cex = 0.8)
+
+## Pclass
+plot(mds.k2[,1], mds.k2[,2], pch = 19,
+     col = c("#CD96CD", "#CD2990", "blue")[dane3$Pclass],
+     xlab = "MDS1", ylab = "MDS2", main = "Klasa pasażerska")
+legend("topright", legend = c("1 klasa", "2 klasa", "3 klasa"),
+       col = c("#CD96CD", "#CD2990", "blue"), pch = 19, cex = 0.8)
+
+par(mfrow = c(1, 1))
+
+```
+
+Na podstawie Rysunku \ref{fig:rozrzut.mdsk2.podzial} możemy zauważyć, że płeć była jednym z głównych czynników determinujących przeżywalność pasażerów. Kobiety grupują się po lewej stronie wykresu, co w zdecydowanej większości pokrywa się z osobami ocalałymi, zaś mężczyźni skupiają się po prawej stronie, gdzie dominują osoby, które zginęły. 
+Kolejną analizowaną cechą jest klasa biletu pasażera. Osoby podróżujące w trzeciej klasie miały najmniejsze szanse na przeżycie, zaś te w pierwszej - największe. Wyższa klasa biletu wiąże się z przesunięciem obserwacji w kierunku lewej strony osi *MDS1*. Wśród kobiet, które jednak nie ocalały, zdecydowanie dominują te, które podróżowały w 3. klasie. Jest to zatem ten czynnik, który odpowiada za podgrupę widoczną w górnej części lewego pasma na wykresie przeżywalności. Zauważalne są jednak pojedyncze obserwacje nietypowe, takie jak kobiety z 1. klasy, które zginęły.
+Redukcja wymiaru MDS z wykorzystaniem odległości Gowera pozwoliła nam więc zauważyć, że to zmienne **Sex** oraz **PClass** w dużym stopniu determinowały przeżywalność pasażera.
